@@ -1,0 +1,52 @@
+{
+  "actions": [
+    {
+      "type": "wait",
+      "duration": 2
+    },
+    {
+      "type": "screenshot",
+      "label": "initial-load"
+    },
+    {
+      "type": "wait",
+      "duration": 1
+    },
+    {
+      "type": "click",
+      "selector": "button.start"
+    },
+    {
+      "type": "wait",
+      "duration": 1
+    },
+    {
+      "type": "keypress",
+      "key": "ArrowRight",
+      "repeat": 5
+    },
+    {
+      "type": "screenshot",
+      "label": "after-movement"
+    },
+    {
+      "type": "keypress",
+      "key": "Space",
+      "repeat": 2
+    },
+    {
+      "type": "wait",
+      "duration": 1
+    },
+    {
+      "type": "screenshot",
+      "label": "final-state"
+    }
+  ],
+  "timeouts": {
+    "load": 30,
+    "action": 10,
+    "total": 300
+  }
+}
+

@@ -1,0 +1,6 @@
+# Git attributes for security
+*.env linguist-vendored
+*.env.local linguist-vendored
+.env linguist-vendored
+.env.local linguist-vendored
+

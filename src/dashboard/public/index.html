@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DreamUp QA Dashboard</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-primary: #0f0f23;
+      --bg-secondary: #1a1a2e;
+      --bg-card: #16213e;
+      --text-primary: #ffffff;
+      --text-secondary: #a0a0b8;
+      --accent: #00d4ff;
+      --accent-hover: #00b8e6;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --error: #ef4444;
+      --border: #2d3748;
+      --shadow: rgba(0, 0, 0, 0.3);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+      background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    header {
+      margin-bottom: 3rem;
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, var(--accent), #6366f1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      color: var(--text-secondary);
+      font-size: 1rem;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      text-align: center;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .stat-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px var(--shadow);
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .stat-label {
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .status-pass { color: var(--success); }
+    .status-partial { color: var(--warning); }
+    .status-fail, .status-error { color: var(--error); }
+
+    .reports-list {
+      display: grid;
+      gap: 1.5rem;
+    }
+
+    .report-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+
+    .report-card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 4px 16px var(--shadow);
+    }
+
+    .report-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .report-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: var(--accent);
+      word-break: break-all;
+    }
+
+    .report-badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-pass { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+    .badge-partial { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+    .badge-fail, .badge-error { background: rgba(239, 68, 68, 0.2); color: var(--error); }
+
+    .report-meta {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+    }
+
+    .meta-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-secondary);
+    }
+
+    .score-bar {
+      width: 100%;
+      height: 8px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 1rem 0;
+    }
+
+    .score-fill {
+      height: 100%;
+      transition: width 0.3s ease;
+      border-radius: 4px;
+    }
+
+    .score-high { background: var(--success); }
+    .score-medium { background: var(--warning); }
+    .score-low { background: var(--error); }
+
+    .issues-list {
+      margin-top: 1rem;
+    }
+
+    .issue-item {
+      padding: 0.75rem;
+      background: rgba(239, 68, 68, 0.1);
+      border-left: 3px solid var(--error);
+      border-radius: 4px;
+      margin-bottom: 0.5rem;
+      font-size: 0.875rem;
+    }
+
+    .screenshots-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    .screenshot-item {
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      transition: transform 0.2s;
+    }
+
+    .screenshot-item:hover {
+      transform: scale(1.05);
+    }
+
+    .screenshot-item img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 3rem;
+      color: var(--text-secondary);
+    }
+
+    .spinner {
+      border: 3px solid var(--border);
+      border-top: 3px solid var(--accent);
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 1rem;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 4rem 2rem;
+      color: var(--text-secondary);
+    }
+
+    .empty-state svg {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 1rem;
+      opacity: 0.5;
+    }
+
+    @media (max-width: 768px) {
+      .container {
+        padding: 1rem;
+      }
+
+      h1 {
+        font-size: 2rem;
+      }
+
+      .report-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎮 DreamUp QA Dashboard</h1>
+      <p class="subtitle">Browser Game Testing Results & Analytics</p>
+    </header>
+
+    <div id="stats" class="stats-grid"></div>
+    <div id="reports" class="reports-list">
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>Loading reports...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+
+    async function fetchReports() {
+      try {
+        const response = await fetch(`${API_BASE}/api/reports`);
+        return await response.json();
+      } catch (error) {
+        console.error('Failed to fetch reports:', error);
+        return [];
+      }
+    }
+
+    function renderStats(reports) {
+      const statsContainer = document.getElementById('stats');
+      
+      if (reports.length === 0) {
+        statsContainer.innerHTML = '';
+        return;
+      }
+
+      const total = reports.length;
+      const passed = reports.filter(r => r.status === 'pass').length;
+      const avgScore = reports.reduce((sum, r) => sum + r.playability_score, 0) / total;
+      const totalIssues = reports.reduce((sum, r) => sum + r.issues.length, 0);
+
+      statsContainer.innerHTML = `
+        <div class="stat-card">
+          <div class="stat-value">${total}</div>
+          <div class="stat-label">Total Tests</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value status-pass">${passed}</div>
+          <div class="stat-label">Passed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${avgScore.toFixed(1)}</div>
+          <div class="stat-label">Avg Score</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${totalIssues}</div>
+          <div class="stat-label">Total Issues</div>
+        </div>
+      `;
+    }
+
+    function getScoreClass(score) {
+      if (score >= 80) return 'score-high';
+      if (score >= 50) return 'score-medium';
+      return 'score-low';
+    }
+
+    function formatDate(timestamp) {
+      return new Date(timestamp).toLocaleString();
+    }
+
+    function renderReports(reports) {
+      const reportsContainer = document.getElementById('reports');
+      
+      if (reports.length === 0) {
+        reportsContainer.innerHTML = `
+          <div class="empty-state">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+            <p>No test reports found</p>
+            <p style="margin-top: 0.5rem; font-size: 0.875rem;">Run tests using: <code style="background: var(--bg-secondary); padding: 0.25rem 0.5rem; border-radius: 4px;">qa-agent test &lt;url&gt;</code></p>
+          </div>
+        `;
+        return;
+      }
+
+      reportsContainer.innerHTML = reports.map(report => {
+        const statusClass = `badge-${report.status}`;
+        const scoreClass = getScoreClass(report.playability_score);
+        
+        return `
+          <div class="report-card">
+            <div class="report-header">
+              <div class="report-title">${report.game_url}</div>
+              <span class="report-badge ${statusClass}">${report.status}</span>
+            </div>
+            
+            <div class="report-meta">
+              <div class="meta-item">
+                <span>⏱</span>
+                <span>${report.execution_time_seconds.toFixed(2)}s</span>
+              </div>
+              <div class="meta-item">
+                <span>📸</span>
+                <span>${report.screenshots.length} screenshots</span>
+              </div>
+              <div class="meta-item">
+                <span>🐛</span>
+                <span>${report.issues.length} issues</span>
+              </div>
+              <div class="meta-item">
+                <span>📅</span>
+                <span>${formatDate(report.timestamp)}</span>
+              </div>
+            </div>
+
+            <div>
+              <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                <span style="font-size: 0.875rem; color: var(--text-secondary);">Playability Score</span>
+                <span style="font-weight: 600;">${report.playability_score}/100</span>
+              </div>
+              <div class="score-bar">
+                <div class="score-fill ${scoreClass}" style="width: ${report.playability_score}%"></div>
+              </div>
+            </div>
+
+            ${report.issues.length > 0 ? `
+              <div class="issues-list">
+                ${report.issues.slice(0, 3).map(issue => `
+                  <div class="issue-item">
+                    <strong>${issue.severity.toUpperCase()}:</strong> ${issue.description}
+                  </div>
+                `).join('')}
+                ${report.issues.length > 3 ? `<div style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.5rem;">+${report.issues.length - 3} more issues</div>` : ''}
+              </div>
+            ` : ''}
+
+            ${report.screenshots.length > 0 ? `
+              <div class="screenshots-grid">
+                ${report.screenshots.slice(0, 4).map(screenshot => `
+                  <div class="screenshot-item">
+                    <img src="${API_BASE}/api/screenshots/${screenshot.filename}" alt="${screenshot.label || 'Screenshot'}" loading="lazy">
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function loadDashboard() {
+      const reportsContainer = document.getElementById('reports');
+      reportsContainer.innerHTML = `
+        <div class="loading">
+          <div class="spinner"></div>
+          <p>Loading reports...</p>
+        </div>
+      `;
+
+      const reports = await fetchReports();
+      renderStats(reports);
+      renderReports(reports);
+
+      // Auto-refresh every 30 seconds
+      setInterval(async () => {
+        const newReports = await fetchReports();
+        renderStats(newReports);
+        renderReports(newReports);
+      }, 30000);
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>
+
