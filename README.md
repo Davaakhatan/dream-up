@@ -331,5 +331,5 @@ MIT
 
 ## Contact
 
-For questions or issues, contact: matt.smith@superbuilders.school
+For questions or issues, contact: zr.davaa@gmail.com
 
