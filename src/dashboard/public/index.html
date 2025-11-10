@@ -1556,8 +1556,11 @@
     });
 
     async function fetchReports() {
-      // Try Firestore first (if Firebase is initialized)
-      if (firebaseInitialized && firestore) {
+      // Try Firestore first (only if API fails and Firestore is available)
+      // Skip Firestore for Railway deployments - use API only
+      const useFirestore = false; // Disable Firestore when using Railway
+      
+      if (useFirestore && firebaseInitialized && firestore) {
         try {
           const snapshot = await firestore.collection('reports')
             .orderBy('timestamp', 'desc')
@@ -1576,17 +1579,10 @@
             hideApiUnavailableMessage();
             enableTestRunner();
             return reports;
-          } else {
-            console.log('ℹ No reports found in Firestore, trying API...');
           }
         } catch (firestoreError) {
-          // Check if it's a permissions error (service not enabled)
-          if (firestoreError.code === 'permission-denied' || firestoreError.code === 'unavailable') {
-            console.warn('⚠ Firestore not available or not enabled. Please enable Firestore in Firebase Console.');
-            console.warn('   Go to: https://console.firebase.google.com/project/qapipeline-7c83d/firestore');
-          } else {
-            console.warn('⚠ Firestore read failed, trying API:', firestoreError);
-          }
+          // Silently fail - Firestore is optional
+          // Only use API endpoint
         }
       }
       

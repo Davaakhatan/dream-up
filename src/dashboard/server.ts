@@ -621,16 +621,36 @@ export class DashboardServer {
     return new Promise((resolve, reject) => {
       // Bind to 0.0.0.0 for Railway/Cloud Run (not just localhost)
       const host = process.env.HOST || '0.0.0.0';
-      this.app.listen(this.port, host, () => {
-        console.log(`\n${'═'.repeat(60)}`);
-        console.log(`📊 Dashboard running at:`);
-        console.log(`   ${'→'.repeat(2)} http://${host}:${this.port}`);
-        console.log(`${'═'.repeat(60)}\n`);
-        resolve();
-      }).on('error', (error) => {
-        console.error('Failed to start server:', error);
+      
+      console.log(`\n${'═'.repeat(60)}`);
+      console.log(`📊 Starting Dashboard Server...`);
+      console.log(`   Host: ${host}`);
+      console.log(`   Port: ${this.port}`);
+      console.log(`   Output Dir: ${this.outputDir}`);
+      console.log(`${'═'.repeat(60)}\n`);
+      
+      try {
+        this.app.listen(this.port, host, () => {
+          console.log(`\n${'═'.repeat(60)}`);
+          console.log(`✅ Dashboard Server Started Successfully!`);
+          console.log(`   ${'→'.repeat(2)} http://${host}:${this.port}`);
+          console.log(`   ${'→'.repeat(2)} http://localhost:${this.port}`);
+          console.log(`${'═'.repeat(60)}\n`);
+          resolve();
+        }).on('error', (error: NodeJS.ErrnoException) => {
+          console.error(`\n${'═'.repeat(60)}`);
+          console.error(`❌ Failed to start server on ${host}:${this.port}`);
+          console.error(`   Error: ${error.message}`);
+          if (error.code === 'EADDRINUSE') {
+            console.error(`   Port ${this.port} is already in use`);
+          }
+          console.error(`${'═'.repeat(60)}\n`);
+          reject(error);
+        });
+      } catch (error) {
+        console.error('❌ Exception during server startup:', error);
         reject(error);
-      });
+      }
     });
   }
 

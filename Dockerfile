@@ -65,5 +65,5 @@ ENV PORT=8080
 ENV NODE_ENV=production
 
 # Start server
-CMD ["node", "dist/dashboard/server.js"]
+CMD ["node", "dist/dashboard/prod.js"]
 
