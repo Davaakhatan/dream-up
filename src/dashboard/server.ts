@@ -601,13 +601,18 @@ export class DashboardServer {
   }
 
   start(): Promise<void> {
-    return new Promise((resolve) => {
-      this.app.listen(this.port, () => {
+    return new Promise((resolve, reject) => {
+      // Bind to 0.0.0.0 for Railway/Cloud Run (not just localhost)
+      const host = process.env.HOST || '0.0.0.0';
+      this.app.listen(this.port, host, () => {
         console.log(`\n${'═'.repeat(60)}`);
         console.log(`📊 Dashboard running at:`);
-        console.log(`   ${'→'.repeat(2)} http://localhost:${this.port}`);
+        console.log(`   ${'→'.repeat(2)} http://${host}:${this.port}`);
         console.log(`${'═'.repeat(60)}\n`);
         resolve();
+      }).on('error', (error) => {
+        console.error('Failed to start server:', error);
+        reject(error);
       });
     });
   }
