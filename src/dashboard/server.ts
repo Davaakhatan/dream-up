@@ -38,10 +38,27 @@ export class DashboardServer {
         "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';"
       );
       
-      // Enable CORS for development
-      res.header('Access-Control-Allow-Origin', '*');
+      // Enable CORS for all origins (development and production)
+      // Allow specific origins or use * for all (less secure but works for all frontends)
+      const origin = req.headers.origin;
+      const allowedOrigins = [
+        'https://qa-dream-up.vercel.app',
+        'https://qapipeline-7c83d.web.app',
+        'http://localhost:3000',
+        'http://localhost:5173',
+      ];
+      
+      if (origin && allowedOrigins.includes(origin)) {
+        res.header('Access-Control-Allow-Origin', origin);
+      } else {
+        // Fallback to * for any other origin (less secure but flexible)
+        res.header('Access-Control-Allow-Origin', '*');
+      }
+      
       res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.header('Access-Control-Allow-Credentials', 'true');
+      
       if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
       }
