@@ -74,25 +74,10 @@ export class DashboardServer {
     // Serve static assets from public directory
     this.app.use('/static', express.static(publicDir));
 
-    // API: Get all reports (from Firestore or file system)
+    // API: Get all reports (from file system)
     this.app.get('/api/reports', async (req, res) => {
       try {
-        // Try Firestore first
-        try {
-          const { getFirebaseService } = await import('../services/firebase-service.js');
-          const firebaseService = getFirebaseService();
-          await firebaseService.initialize();
-          if (firebaseService.isAvailable()) {
-            const firestoreReports = await firebaseService.getReports();
-            if (firestoreReports.length > 0) {
-              return res.json(firestoreReports);
-            }
-          }
-        } catch (firebaseError) {
-          console.warn('Firestore read failed, falling back to file system:', firebaseError);
-        }
-
-        // Fallback to file system
+        // Read reports from file system
         if (!existsSync(this.outputDir)) {
           return res.json([]);
         }
@@ -361,8 +346,7 @@ export class DashboardServer {
       
       // Initialize components
       // Enable Firebase if USE_FIREBASE env var is set
-      const useFirebase = process.env.USE_FIREBASE === 'true';
-      const evidenceCapture = new EvidenceCapture(this.outputDir, useFirebase);
+      const evidenceCapture = new EvidenceCapture(this.outputDir);
       const evaluator = new Evaluator();
       
       // Create agent
@@ -492,17 +476,6 @@ export class DashboardServer {
       const reportPath = join(this.outputDir, `report-${Date.now()}.json`);
       await writeFile(reportPath, JSON.stringify(report, null, 2));
       
-      // Save to Firebase Firestore if available
-      try {
-        const { getFirebaseService } = await import('../services/firebase-service.js');
-        const firebaseService = getFirebaseService();
-        await firebaseService.initialize();
-        if (firebaseService.isAvailable()) {
-          await firebaseService.saveReport(report);
-        }
-      } catch (firebaseError) {
-        console.warn('⚠ Failed to save report to Firebase (using file system):', firebaseError);
-      }
       
       // Close browser
       if (session) {
@@ -561,17 +534,6 @@ export class DashboardServer {
         const reportPath = join(this.outputDir, `report-${Date.now()}.json`);
         await writeFile(reportPath, JSON.stringify(errorReport, null, 2));
         
-        // Save to Firebase Firestore if available
-        try {
-          const { getFirebaseService } = await import('../services/firebase-service.js');
-          const firebaseService = getFirebaseService();
-          await firebaseService.initialize();
-          if (firebaseService.isAvailable()) {
-            await firebaseService.saveReport(errorReport);
-          }
-        } catch (firebaseError) {
-          console.warn('⚠ Failed to save error report to Firebase:', firebaseError);
-        }
       } catch (reportError) {
         console.warn('Failed to save error report:', reportError);
       }

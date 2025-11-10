@@ -3,14 +3,8 @@
   <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://storage.googleapis.com; connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://*.up.railway.app https://*.railway.app;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.up.railway.app https://*.railway.app;">
   <title>DreamUp QA Dashboard</title>
-  
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-  <script src="/firebase-config.js"></script>
   
   <style>
     * {
@@ -1386,60 +1380,6 @@
     // Example: localStorage.setItem('API_BASE', 'http://localhost:3000');
     const API_BASE = localStorage.getItem('API_BASE') || window.location.origin;
 
-    // Initialize Firebase
-    let firebaseApp = null;
-    let firestore = null;
-    let firebaseInitialized = false;
-    
-    // Initialize Firebase when scripts are loaded
-    function initializeFirebase() {
-      try {
-        if (window.FIREBASE_CONFIG && window.firebase) {
-          // Check if already initialized
-          if (window.firebase.apps.length > 0) {
-            firebaseApp = window.firebase.apps[0];
-          } else {
-            firebaseApp = window.firebase.initializeApp(window.FIREBASE_CONFIG);
-          }
-          
-          // Initialize Firestore
-          firestore = window.firebase.firestore();
-          
-          // Enable offline persistence (optional, but helpful)
-          try {
-            firestore.enablePersistence({ synchronizeTabs: true }).catch(err => {
-              if (err.code === 'failed-precondition') {
-                console.warn('⚠ Firestore persistence requires all tabs to be closed');
-              } else if (err.code === 'unimplemented') {
-                console.warn('⚠ Firestore persistence not supported in this browser');
-              }
-            });
-          } catch (persistenceError) {
-            // Ignore persistence errors - not critical
-          }
-          
-          firebaseInitialized = true;
-          console.log('✓ Firebase initialized successfully');
-          console.log('✓ Firestore ready');
-        } else {
-          console.warn('⚠ Firebase config or SDK not available');
-        }
-      } catch (error) {
-        console.warn('⚠ Firebase initialization failed:', error);
-        firebaseInitialized = false;
-      }
-    }
-    
-    // Wait for Firebase SDK to load, then initialize
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => {
-        // Wait a bit for Firebase scripts to load
-        setTimeout(initializeFirebase, 100);
-      });
-    } else {
-      // DOM already loaded, wait for Firebase scripts
-      setTimeout(initializeFirebase, 100);
-    }
 
     // Screenshot modal state
     let currentScreenshots = [];
@@ -1556,37 +1496,7 @@
     });
 
     async function fetchReports() {
-      // Try Firestore first (only if API fails and Firestore is available)
-      // Skip Firestore for Railway deployments - use API only
-      const useFirestore = false; // Disable Firestore when using Railway
-      
-      if (useFirestore && firebaseInitialized && firestore) {
-        try {
-          const snapshot = await firestore.collection('reports')
-            .orderBy('timestamp', 'desc')
-            .limit(100) // Limit to 100 most recent reports
-            .get();
-          
-          if (!snapshot.empty) {
-            const reports = snapshot.docs.map(doc => {
-              const data = doc.data();
-              // Remove Firestore metadata fields
-              const { createdAt, updatedAt, id, ...report } = data;
-              return report;
-            });
-            
-            console.log(`✓ Loaded ${reports.length} reports from Firestore`);
-            hideApiUnavailableMessage();
-            enableTestRunner();
-            return reports;
-          }
-        } catch (firestoreError) {
-          // Silently fail - Firestore is optional
-          // Only use API endpoint
-        }
-      }
-      
-      // Fallback to API endpoint
+      // Fetch reports from Railway API endpoint
       try {
         const response = await fetch(`${API_BASE}/api/reports`);
         
