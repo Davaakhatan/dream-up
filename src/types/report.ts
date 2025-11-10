@@ -13,6 +13,8 @@ export interface ScreenshotInfo {
   filename: string;
   timestamp: string;
   label?: string;
+  storageUrl?: string; // Firebase Storage URL (if uploaded)
+  url?: string; // Public URL (either Firebase Storage or API endpoint)
 }
 
 export interface QAReport {

@@ -3,8 +3,15 @@
   <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://storage.googleapis.com; connect-src 'self' https://*.firebaseio.com https://*.googleapis.com;">
   <title>DreamUp QA Dashboard</title>
+  
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+  <script src="/firebase-config.js"></script>
+  
   <style>
     * {
       margin: 0;
@@ -1374,7 +1381,65 @@
       }
     });
 
-    const API_BASE = window.location.origin;
+    // API Base URL - can be configured via localStorage or defaults to same origin
+    // For Firebase Hosting, you may need to set this to your API server URL
+    // Example: localStorage.setItem('API_BASE', 'http://localhost:3000');
+    const API_BASE = localStorage.getItem('API_BASE') || window.location.origin;
+
+    // Initialize Firebase
+    let firebaseApp = null;
+    let firestore = null;
+    let firebaseInitialized = false;
+    
+    // Initialize Firebase when scripts are loaded
+    function initializeFirebase() {
+      try {
+        if (window.FIREBASE_CONFIG && window.firebase) {
+          // Check if already initialized
+          if (window.firebase.apps.length > 0) {
+            firebaseApp = window.firebase.apps[0];
+          } else {
+            firebaseApp = window.firebase.initializeApp(window.FIREBASE_CONFIG);
+          }
+          
+          // Initialize Firestore
+          firestore = window.firebase.firestore();
+          
+          // Enable offline persistence (optional, but helpful)
+          try {
+            firestore.enablePersistence({ synchronizeTabs: true }).catch(err => {
+              if (err.code === 'failed-precondition') {
+                console.warn('⚠ Firestore persistence requires all tabs to be closed');
+              } else if (err.code === 'unimplemented') {
+                console.warn('⚠ Firestore persistence not supported in this browser');
+              }
+            });
+          } catch (persistenceError) {
+            // Ignore persistence errors - not critical
+          }
+          
+          firebaseInitialized = true;
+          console.log('✓ Firebase initialized successfully');
+          console.log('✓ Firestore ready');
+        } else {
+          console.warn('⚠ Firebase config or SDK not available');
+        }
+      } catch (error) {
+        console.warn('⚠ Firebase initialization failed:', error);
+        firebaseInitialized = false;
+      }
+    }
+    
+    // Wait for Firebase SDK to load, then initialize
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        // Wait a bit for Firebase scripts to load
+        setTimeout(initializeFirebase, 100);
+      });
+    } else {
+      // DOM already loaded, wait for Firebase scripts
+      setTimeout(initializeFirebase, 100);
+    }
 
     // Screenshot modal state
     let currentScreenshots = [];
@@ -1437,7 +1502,9 @@
       const modalPrev = document.getElementById('modal-prev');
       const modalNext = document.getElementById('modal-next');
       
-      modalImage.src = `${API_BASE}/api/screenshots/${screenshot.filename}`;
+      // Use Firebase Storage URL if available, otherwise use API endpoint
+      const screenshotUrl = screenshot.url || screenshot.storageUrl || `${API_BASE}/api/screenshots/${screenshot.filename}`;
+      modalImage.src = screenshotUrl;
       modalLabel.textContent = getScreenshotLabel(screenshot.label, index);
       modalTime.textContent = new Date(screenshot.timestamp).toLocaleString();
       
@@ -1489,12 +1556,139 @@
     });
 
     async function fetchReports() {
+      // Try Firestore first (if Firebase is initialized)
+      if (firebaseInitialized && firestore) {
+        try {
+          const snapshot = await firestore.collection('reports')
+            .orderBy('timestamp', 'desc')
+            .limit(100) // Limit to 100 most recent reports
+            .get();
+          
+          if (!snapshot.empty) {
+            const reports = snapshot.docs.map(doc => {
+              const data = doc.data();
+              // Remove Firestore metadata fields
+              const { createdAt, updatedAt, id, ...report } = data;
+              return report;
+            });
+            
+            console.log(`✓ Loaded ${reports.length} reports from Firestore`);
+            hideApiUnavailableMessage();
+            enableTestRunner();
+            return reports;
+          } else {
+            console.log('ℹ No reports found in Firestore, trying API...');
+          }
+        } catch (firestoreError) {
+          // Check if it's a permissions error (service not enabled)
+          if (firestoreError.code === 'permission-denied' || firestoreError.code === 'unavailable') {
+            console.warn('⚠ Firestore not available or not enabled. Please enable Firestore in Firebase Console.');
+            console.warn('   Go to: https://console.firebase.google.com/project/qapipeline-7c83d/firestore');
+          } else {
+            console.warn('⚠ Firestore read failed, trying API:', firestoreError);
+          }
+        }
+      }
+      
+      // Fallback to API endpoint
       try {
         const response = await fetch(`${API_BASE}/api/reports`);
-        return await response.json();
+        
+        // Check if response is actually JSON (not HTML error page)
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          console.warn('API server not available - response is not JSON');
+          showApiUnavailableMessage();
+          return [];
+        }
+        
+        if (!response.ok) {
+          console.warn(`API returned error: ${response.status}`);
+          return [];
+        }
+        
+        const data = await response.json();
+        hideApiUnavailableMessage();
+        enableTestRunner();
+        return Array.isArray(data) ? data : [];
       } catch (error) {
         console.error('Failed to fetch reports:', error);
+        showApiUnavailableMessage();
         return [];
+      }
+    }
+    
+    function showApiUnavailableMessage() {
+      // Only show once
+      if (document.getElementById('api-unavailable-banner')) {
+        return;
+      }
+      
+      const banner = document.createElement('div');
+      banner.id = 'api-unavailable-banner';
+      banner.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+        color: white;
+        padding: 1rem;
+        text-align: center;
+        z-index: 10000;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      `;
+      banner.innerHTML = `
+        <div style="max-width: 1200px; margin: 0 auto;">
+          <strong>📊 View-Only Mode</strong>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem;">
+            API server is not available. You can <strong>view existing reports</strong> below, but cannot run new tests.
+            <br>
+            To run tests: Start API server with <code style="background: rgba(0,0,0,0.2); padding: 0.25rem 0.5rem; border-radius: 4px;">npm run dashboard</code>
+            <br>
+            Or configure API URL: <code style="background: rgba(0,0,0,0.2); padding: 0.25rem 0.5rem; border-radius: 4px;">localStorage.setItem('API_BASE', 'http://your-api-url:3000')</code>
+          </p>
+        </div>
+      `;
+      document.body.insertBefore(banner, document.body.firstChild);
+      
+      // Disable test runner when API is unavailable
+      const runTestBtn = document.getElementById('run-test-btn');
+      const gameUrlInput = document.getElementById('game-url-input');
+      if (runTestBtn) {
+        runTestBtn.disabled = true;
+        runTestBtn.title = 'API server not available - cannot run tests';
+        runTestBtn.style.opacity = '0.6';
+        runTestBtn.style.cursor = 'not-allowed';
+      }
+      if (gameUrlInput) {
+        gameUrlInput.disabled = true;
+        gameUrlInput.placeholder = 'API server not available - view-only mode';
+        gameUrlInput.title = 'Cannot run tests - API server not available';
+      }
+    }
+    
+    function hideApiUnavailableMessage() {
+      const banner = document.getElementById('api-unavailable-banner');
+      if (banner) {
+        banner.remove();
+      }
+      enableTestRunner();
+    }
+    
+    function enableTestRunner() {
+      const runTestBtn = document.getElementById('run-test-btn');
+      const gameUrlInput = document.getElementById('game-url-input');
+      if (runTestBtn) {
+        runTestBtn.disabled = false;
+        runTestBtn.title = '';
+        runTestBtn.style.opacity = '1';
+        runTestBtn.style.cursor = 'pointer';
+      }
+      if (gameUrlInput) {
+        gameUrlInput.disabled = false;
+        gameUrlInput.placeholder = 'Enter game URL (e.g., https://play2048.co/)';
+        gameUrlInput.title = '';
       }
     }
 
@@ -1641,7 +1835,7 @@
                   const label = getScreenshotLabel(screenshot.label, idx);
                   return `
                   <div class="screenshot-item screenshot-clickable" data-screenshot-index="${idx}" data-report-index="${reportIndex}" title="Click to view full size - ${label}">
-                    <img src="${API_BASE}/api/screenshots/${screenshot.filename}?t=${Date.now()}" alt="${label}" loading="lazy" onerror="this.onerror=null; this.style.display='none'; this.parentElement.innerHTML='<div style=\\'padding: 2rem; text-align: center; color: var(--text-secondary); font-size: 0.875rem;\\'>Screenshot not available<br><small>File: ${screenshot.filename}</small></div>'">
+                    <img src="${screenshot.url || screenshot.storageUrl || `${API_BASE}/api/screenshots/${screenshot.filename}`}?t=${Date.now()}" alt="${label}" loading="lazy" onerror="this.onerror=null; this.style.display='none'; this.parentElement.innerHTML='<div style=\\'padding: 2rem; text-align: center; color: var(--text-secondary); font-size: 0.875rem;\\'>Screenshot not available<br><small>File: ${screenshot.filename}</small></div>'">
                     <div class="screenshot-label-overlay">
                       <div class="screenshot-label-text">${label}</div>
                       <div class="screenshot-label-time">${new Date(screenshot.timestamp).toLocaleTimeString()}</div>
@@ -1756,6 +1950,12 @@
           },
           body: JSON.stringify({ gameUrl, showBrowser }),
         });
+
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('API server not available. Please start the dashboard server with: npm run dashboard');
+        }
 
         const data = await response.json();
 
@@ -2135,6 +2335,14 @@
         
         try {
           const response = await fetch(`${API_BASE}/api/test/status`);
+          
+          // Check if response is JSON
+          const contentType = response.headers.get('content-type');
+          if (!contentType || !contentType.includes('application/json')) {
+            console.warn('API server not available during polling');
+            return; // Skip this poll
+          }
+          
           const data = await response.json();
 
           // Update animation based on current phase (always update during test)

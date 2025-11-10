@@ -159,23 +159,29 @@ export class QAAgent {
       try {
         await interactionEngine.detectAndInteract();
         
+        // CRITICAL: Wait longer after clicking START GAME to ensure game fully initializes
+        // Games like Pac-Man need time to initialize before accepting keyboard input
+        await this.session.wait(2000); // Additional wait for game initialization
+        
         // Generic check: if game is still not playing after auto-detection, try initial input
         // Some games need a keyboard input to initialize gameplay (e.g., board games, puzzle games)
-        const stillPlaying = await interactionEngine.isGamePlaying(3000);
+        const stillPlaying = await interactionEngine.isGamePlaying(5000);
         if (!stillPlaying) {
           console.log('⚠ Game not playing after auto-detection, trying initial input to trigger gameplay...');
+          // Wait a bit more before sending input (game might still be initializing)
+          await this.session.wait(2000);
           // Try sending a generic input - arrow keys work for many games
           try {
             await this.session.keypress('ArrowRight');
             await this.session.wait(2000); // Wait for game state to update
-            const nowPlaying = await interactionEngine.isGamePlaying(3000);
+            const nowPlaying = await interactionEngine.isGamePlaying(5000);
             if (nowPlaying) {
               console.log('✓ Game started after initial input');
             } else {
               // Try another direction - some games need different input
               await this.session.keypress('ArrowDown');
               await this.session.wait(2000);
-              const nowPlaying2 = await interactionEngine.isGamePlaying(3000);
+              const nowPlaying2 = await interactionEngine.isGamePlaying(5000);
               if (nowPlaying2) {
                 console.log('✓ Game started after second input');
               }
@@ -185,6 +191,8 @@ export class QAAgent {
           }
         } else {
           console.log('✓ Game confirmed playing after auto-detection');
+          // Wait a bit more to ensure game is fully ready for actions
+          await this.session.wait(2000);
         }
         
         // Wait a bit after auto-detection and capture screenshot
@@ -216,7 +224,37 @@ export class QAAgent {
         // Continue anyway - game might still work
       }
       
+      // Execute configured actions (arrow keys, spacebar, mouse clicks)
+      // Level navigation is automatically checked during action execution
       await interactionEngine.executeActions(this.config.actions);
+      
+      // After actions, check for level completion and navigate through 2-3 levels
+      const maxLevels = 3; // Navigate through 2-3 levels as per requirements
+      let levelCount = 1;
+      
+      // Check for level completion after actions and navigate if needed
+      for (let i = 0; i < maxLevels - 1; i++) {
+        const levelNavigated = await interactionEngine.handleLevelNavigation();
+        if (levelNavigated) {
+          levelCount++;
+          console.log(`✓ Navigated to level ${levelCount}`);
+          // Wait for level to load
+          await this.session.wait(2000);
+          // Capture screenshot after level navigation
+          if (this.evidenceCapture) {
+            await this.evidenceCapture.captureScreenshot(this.session, `level-${levelCount}`);
+          }
+          // Execute a few more actions on the new level
+          await interactionEngine.executeActions([
+            { type: 'keypress', key: 'ArrowRight', repeat: 2 },
+            { type: 'wait', duration: 0.5 },
+            { type: 'keypress', key: 'ArrowUp', repeat: 2 },
+            { type: 'wait', duration: 0.5 },
+          ]);
+        } else {
+          break; // No more levels to navigate
+        }
+      }
 
       // Step 6: Force tiles to be visible before final screenshot
       // CRITICAL: 2048 tiles might exist in DOM but not be visible due to CSS

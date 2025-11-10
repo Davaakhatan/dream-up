@@ -79,18 +79,38 @@ export class InteractionEngine {
 
   /**
    * Execute a sequence of actions with timeout protection
+   * Also checks for level completion and navigates through 2-3 levels as per requirements
    */
   async executeActions(actions: ActionConfig[]): Promise<void> {
     const startTime = Date.now();
     const totalTimeout = this.timeouts.total * 1000;
+    let levelNavigationCount = 0;
+    const maxLevelNavigations = 2; // Navigate through 2-3 levels as per requirements
 
-    for (const action of actions) {
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
       // Check total timeout
       if (Date.now() - startTime > totalTimeout) {
         throw new Error(`Total execution timeout exceeded (${this.timeouts.total}s)`);
       }
 
       await this.executeAction(action);
+      
+      // After every few actions, check for level completion and navigate to next level
+      // This supports navigating through 2-3 levels/screens as per requirements
+      if (i % 4 === 0 && levelNavigationCount < maxLevelNavigations) {
+        const levelNavigated = await this.handleLevelNavigation();
+        if (levelNavigated) {
+          levelNavigationCount++;
+          console.log(`✓ Level navigation ${levelNavigationCount} completed during actions`);
+          // Wait for next level to fully load
+          await this.session.wait(2000);
+          // Capture screenshot after level navigation
+          if (this.evidenceCapture) {
+            await this.evidenceCapture.captureScreenshot(this.session, `level-${levelNavigationCount + 1}`);
+          }
+        }
+      }
     }
   }
 
@@ -139,15 +159,81 @@ export class InteractionEngine {
           break;
 
         case 'click':
-          if (!action.selector) {
-            throw new Error('Click action requires a selector');
+          if (!action.selector && (action.x === undefined || action.y === undefined)) {
+            throw new Error('Click action requires either a selector or x/y coordinates');
           }
-          await Promise.race([
-            this.session.click(action.selector),
-            this.timeoutPromise(actionTimeout),
-          ]);
+          
+          // Support coordinate-based clicking (for canvas games)
+          if (action.x !== undefined && action.y !== undefined && this.session.clickAt) {
+            try {
+              // If selector is provided, get element bounds first
+              if (action.selector) {
+                const bounds = await this.session.evaluate(`
+                  (() => {
+                    const element = document.querySelector(${JSON.stringify(action.selector)});
+                    if (element) {
+                      const rect = element.getBoundingClientRect();
+                      return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+                    }
+                    return null;
+                  })()
+                `) as { x: number; y: number; width: number; height: number } | null;
+                
+                if (bounds) {
+                  // Relative coordinates (0-1) converted to absolute
+                  const clickX = bounds.x + (bounds.width * action.x);
+                  const clickY = bounds.y + (bounds.height * action.y);
+                  console.log(`🖱️ Clicking at coordinates (${clickX}, ${clickY}) relative to ${action.selector}`);
+                  await Promise.race([
+                    this.session.clickAt(clickX, clickY),
+                    this.timeoutPromise(actionTimeout),
+                  ]);
+                } else {
+                  // Fallback to page center if element not found
+                  const pageSize = await this.session.evaluate(`
+                    (() => ({ width: window.innerWidth, height: window.innerHeight }))()
+                  `) as { width: number; height: number };
+                  const clickX = pageSize.width * action.x;
+                  const clickY = pageSize.height * action.y;
+                  console.log(`🖱️ Clicking at page coordinates (${clickX}, ${clickY})`);
+                  await Promise.race([
+                    this.session.clickAt(clickX, clickY),
+                    this.timeoutPromise(actionTimeout),
+                  ]);
+                }
+              } else {
+                // No selector, use page coordinates
+                const pageSize = await this.session.evaluate(`
+                  (() => ({ width: window.innerWidth, height: window.innerHeight }))()
+                `) as { width: number; height: number };
+                const clickX = pageSize.width * action.x;
+                const clickY = pageSize.height * action.y;
+                console.log(`🖱️ Clicking at page coordinates (${clickX}, ${clickY})`);
+                await Promise.race([
+                  this.session.clickAt(clickX, clickY),
+                  this.timeoutPromise(actionTimeout),
+                ]);
+              }
+            } catch (error) {
+              console.warn('Coordinate click failed, falling back to selector:', error);
+              // Fallback to selector click if coordinate click fails
+              if (action.selector) {
+                await Promise.race([
+                  this.session.click(action.selector),
+                  this.timeoutPromise(actionTimeout),
+                ]);
+              }
+            }
+          } else if (action.selector) {
+            // Standard selector-based click
+            await Promise.race([
+              this.session.click(action.selector),
+              this.timeoutPromise(actionTimeout),
+            ]);
+          }
+          
           // Wait for UI to update after click (games need time to respond)
-          await this.session.wait(1000); // Reduced from 1500ms
+          await this.session.wait(1000);
           
           // Only check for modals if game is NOT playing (to avoid resetting game)
           const isPlayingBeforeClick = await Promise.race([
@@ -155,17 +241,18 @@ export class InteractionEngine {
             new Promise<boolean>(resolve => setTimeout(() => resolve(true), 1500)) // Assume playing if check is slow
           ]);
           if (!isPlayingBeforeClick) {
-            // Game is not playing - check for modals
+            // Game is not playing - check for modals and level navigation
             await this.handleModalsAndDialogs();
+            // Note: Level navigation is handled during gameplay actions, not on every click
           }
           
           // Capture screenshot after click if evidence capture is available
           if (this.evidenceCapture) {
-            await this.evidenceCapture.captureScreenshot(
-              this.session, 
-              `after-click-${action.selector.replace(/[^a-zA-Z0-9]/g, '-')}`
-            );
-            await this.session.wait(200); // Reduced from 300ms
+            const clickLabel = action.selector 
+              ? `after-click-${action.selector.replace(/[^a-zA-Z0-9]/g, '-')}`
+              : `after-click-${action.x}-${action.y}`;
+            await this.evidenceCapture.captureScreenshot(this.session, clickLabel);
+            await this.session.wait(200);
           }
           break;
 
@@ -438,7 +525,51 @@ export class InteractionEngine {
    * Detect common UI patterns and attempt interaction
    */
   async detectAndInteract(): Promise<void> {
-    // Step 0: Check if we're in tutorial mode and actively look for "New Game" buttons
+    // Step 0: FIRST check for "START GAME" or "New Game" buttons on landing page
+    // Many games (like Pac-Man) show a landing page with "START GAME" button that must be clicked first
+    console.log('🔍 Checking for START GAME or New Game buttons on landing page...');
+    const startGameButtons = ['START GAME', 'Start Game', 'NEW GAME', 'New Game', 'START', 'start game'];
+    for (const btnText of startGameButtons) {
+      try {
+        const clicked = await this.session.clickByText(btnText, { exact: false });
+        if (clicked) {
+          console.log(`✓ Clicked "${btnText}" button on landing page`);
+          // Wait longer for game to initialize (Pac-Man and similar games need time)
+          await this.session.wait(3000); // Wait 3 seconds for game to start
+          
+          // Check if game is now playing
+          const isPlaying = await this.isGamePlaying(5000);
+          if (isPlaying) {
+            console.log(`✓ Game started after clicking "${btnText}"`);
+            // Capture screenshot after game starts
+            if (this.evidenceCapture) {
+              await this.evidenceCapture.captureScreenshot(this.session, 'after-start-game-click');
+            }
+            // Wait a bit more for game to fully initialize before executing actions
+            await this.session.wait(2000);
+            return; // Game started, proceed to actions
+          } else {
+            // Game might still be initializing, wait a bit more
+            console.log('⏳ Game may still be initializing, waiting...');
+            await this.session.wait(2000);
+            const stillNotPlaying = await this.isGamePlaying(5000);
+            if (stillNotPlaying) {
+              console.log(`✓ Game started after additional wait`);
+              if (this.evidenceCapture) {
+                await this.evidenceCapture.captureScreenshot(this.session, 'after-start-game-wait');
+              }
+              await this.session.wait(2000);
+              return;
+            }
+          }
+        }
+      } catch (error) {
+        // Continue to next button
+        continue;
+      }
+    }
+    
+    // Step 0.5: Check if we're in tutorial mode and actively look for "New Game" buttons
     // Some games show tutorial overlay but "New Game" button is still visible on the page
     const isInTutorial = await this.session.evaluate(`
       (() => {
@@ -589,27 +720,40 @@ export class InteractionEngine {
         ) as boolean;
         if (exists) {
           await this.session.click(selector);
-          await this.session.wait(2500); // Wait longer for game to start
+          console.log(`✓ Clicked button via CSS selector: ${selector}`);
+          // Wait longer for game to start (Pac-Man and similar games need time)
+          await this.session.wait(3000); // Wait 3 seconds for game to initialize
           // Check if game is now playing
-          const isPlaying = await this.isGamePlaying(3000);
+          const isPlaying = await this.isGamePlaying(5000);
           if (!isPlaying) {
             // Wait a bit more and check again (some games take longer to load)
-            await this.session.wait(1500);
-            const stillNotPlaying = await this.isGamePlaying(3000);
+            console.log('⏳ Game may still be initializing, waiting...');
+            await this.session.wait(2000);
+            const stillNotPlaying = await this.isGamePlaying(5000);
             if (!stillNotPlaying) {
               // Try clicking again - sometimes need to click twice
               try {
                 await this.session.click(selector);
-                await this.session.wait(2000);
+                await this.session.wait(3000);
+                const retryPlaying = await this.isGamePlaying(5000);
+                if (retryPlaying) {
+                  console.log('✓ Game started after retry click');
+                }
               } catch (retryError) {
                 // Ignore - button might be gone
               }
+            } else {
+              console.log('✓ Game started after additional wait');
             }
+          } else {
+            console.log('✓ Game started after clicking button');
           }
           // Capture screenshot after clicking start button
           if (this.evidenceCapture) {
             await this.evidenceCapture.captureScreenshot(this.session, 'after-start-click');
           }
+          // Wait a bit more for game to fully initialize before executing actions
+          await this.session.wait(2000);
           // Check if a modal appeared after clicking
           await this.handleModalsAndDialogs();
           // Verify game is playing one more time
@@ -623,8 +767,8 @@ export class InteractionEngine {
     }
 
     // Then try XPath for text-based matching (buttons containing "Start" or "Play")
-    // Prioritize "PLAY" (uppercase) - common button text across many games
-    const textButtons = ['Play', 'PLAY', 'Start', 'play', 'Begin', 'Go'];
+    // Prioritize "START GAME" and "PLAY" (uppercase) - common button text across many games
+    const textButtons = ['START GAME', 'Start Game', 'PLAY', 'Play', 'Start', 'play', 'Begin', 'Go'];
     for (const text of textButtons) {
       try {
         // Use JSON.stringify to safely escape the text for XPath
@@ -682,27 +826,40 @@ export class InteractionEngine {
           
           if (buttonSelector) {
             await this.session.click(buttonSelector);
-            await this.session.wait(2500); // Wait longer for game to start
+            console.log(`✓ Clicked button via selector: ${buttonSelector}`);
+            // Wait longer for game to start (Pac-Man and similar games need time)
+            await this.session.wait(3000); // Wait 3 seconds for game to initialize
             // Check if game is now playing
-            const isPlaying = await this.isGamePlaying(3000);
+            const isPlaying = await this.isGamePlaying(5000);
             if (!isPlaying) {
               // Wait a bit more and check again (some games take longer to load)
-              await this.session.wait(1500);
-              const stillNotPlaying = await this.isGamePlaying(3000);
+              console.log('⏳ Game may still be initializing, waiting...');
+              await this.session.wait(2000);
+              const stillNotPlaying = await this.isGamePlaying(5000);
               if (!stillNotPlaying) {
                 // Try clicking again - sometimes need to click twice
                 try {
                   await this.session.click(buttonSelector);
-                  await this.session.wait(2000);
+                  await this.session.wait(3000);
+                  const retryPlaying = await this.isGamePlaying(5000);
+                  if (retryPlaying) {
+                    console.log('✓ Game started after retry click');
+                  }
                 } catch (retryError) {
                   // Ignore - button might be gone
                 }
+              } else {
+                console.log('✓ Game started after additional wait');
               }
+            } else {
+              console.log('✓ Game started after clicking button');
             }
             // Capture screenshot after clicking start button
             if (this.evidenceCapture) {
               await this.evidenceCapture.captureScreenshot(this.session, 'after-start-click');
             }
+            // Wait a bit more for game to fully initialize before executing actions
+            await this.session.wait(2000);
             // Check if a modal appeared after clicking
             await this.handleModalsAndDialogs();
             // Verify game is playing one more time
@@ -2351,6 +2508,102 @@ export class InteractionEngine {
       return false;
     } catch (error) {
       console.warn('Canvas click failed:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Handle level navigation - detect level completion screens and navigate to next level
+   * This supports navigating through 2-3 levels/screens as per requirements
+   */
+  async handleLevelNavigation(): Promise<boolean> {
+    try {
+      // Check for level completion indicators
+      const levelInfo = await this.session.evaluate(`
+        (() => {
+          const bodyText = (document.body.textContent || '').toLowerCase();
+          
+          // Check for level completion keywords
+          const hasLevelComplete = 
+            bodyText.includes('level complete') ||
+            bodyText.includes('stage complete') ||
+            bodyText.includes('next level') ||
+            bodyText.includes('continue') ||
+            bodyText.includes('proceed') ||
+            bodyText.includes('level up') ||
+            bodyText.includes('you win') ||
+            bodyText.includes('victory');
+          
+          // Check for level selection/next level buttons
+          const buttons = Array.from(document.querySelectorAll('button, [role="button"], a'));
+          const nextLevelButtons = [];
+          
+          for (const btn of buttons) {
+            if (btn.offsetParent === null) continue;
+            const btnText = (btn.textContent || btn.innerText || '').trim().toLowerCase();
+            if (btnText.includes('next level') ||
+                btnText.includes('continue') ||
+                btnText.includes('proceed') ||
+                btnText.includes('next') ||
+                btnText.includes('level 2') ||
+                btnText.includes('level 3') ||
+                btnText.includes('play again') ||
+                btnText.includes('restart')) {
+              nextLevelButtons.push({
+                text: btnText,
+                element: btn
+              });
+            }
+          }
+          
+          return {
+            hasLevelComplete: hasLevelComplete || nextLevelButtons.length > 0,
+            buttons: nextLevelButtons
+          };
+        })()
+      `) as { hasLevelComplete: boolean; buttons: Array<{ text: string; element: any }> };
+      
+      if (!levelInfo.hasLevelComplete) {
+        return false; // Not on a level completion screen
+      }
+      
+      console.log('🔍 Level completion screen detected, navigating to next level...');
+      
+      // Try clicking "Next Level" or "Continue" buttons
+      const nextLevelTexts = ['next level', 'continue', 'proceed', 'next', 'play again'];
+      for (const btnText of nextLevelTexts) {
+        const clicked = await this.session.clickByText(btnText, { exact: false });
+        if (clicked) {
+          console.log(`✓ Clicked "${btnText}" to navigate to next level`);
+          await this.session.wait(3000); // Wait for next level to load
+          
+          // Verify next level has started
+          const isPlaying = await this.isGamePlaying(5000);
+          if (isPlaying) {
+            console.log('✓ Next level started');
+            return true;
+          }
+        }
+      }
+      
+      // Fallback: Try clicking any next level button found
+      if (levelInfo.buttons.length > 0) {
+        const firstButton = levelInfo.buttons[0];
+        try {
+          const clicked = await this.session.clickByText(firstButton.text, { exact: false });
+          if (clicked) {
+            console.log(`✓ Clicked "${firstButton.text}" to navigate`);
+            await this.session.wait(3000);
+            return true;
+          }
+        } catch (error) {
+          console.warn('Failed to click next level button:', error);
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      console.warn('Level navigation handling failed:', error);
       return false;
     }
   }

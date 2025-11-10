@@ -8,8 +8,9 @@
     "qa-agent": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
+    "build": "tsc && npm run build:copy-public",
+    "build:copy-public": "mkdir -p dist/dashboard/public && cp -r src/dashboard/public/* dist/dashboard/public/",
+    "start": "node dist/dashboard/prod.js",
     "dev": "tsx src/index.ts",
     "cli": "tsx src/cli.ts",
     "dashboard": "tsx src/dashboard/server.ts",
@@ -19,7 +20,11 @@
     "test:demo": "tsx test-demo.ts",
     "test:input-schema": "tsx test-input-schema.ts",
     "lint": "eslint src --ext .ts",
-    "format": "prettier --write \"src/**/*.ts\""
+    "format": "prettier --write \"src/**/*.ts\"",
+    "vercel-build": "npm run build",
+    "firebase:deploy": "npm run build && firebase deploy --only hosting",
+    "firebase:deploy:all": "npm run build && firebase deploy",
+    "firebase:serve": "npm run build && firebase serve"
   },
   "keywords": [
     "qa",
@@ -34,6 +39,8 @@
     "chalk": "^5.3.0",
     "commander": "^11.1.0",
     "express": "^4.18.2",
+    "firebase": "^12.5.0",
+    "firebase-admin": "^13.6.0",
     "openai": "^4.20.1",
     "ora": "^7.0.1",
     "playwright": "^1.56.1",

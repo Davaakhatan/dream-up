@@ -7,14 +7,25 @@ import { join } from 'path';
 import type { BrowserSession } from '../types/browser.js';
 import type { ScreenshotInfo } from '../types/report.js';
 import type { ActionConfig } from '../types/config.js';
+import { getFirebaseService } from '../services/firebase-service.js';
 
 export class EvidenceCapture {
   private outputDir: string;
   private screenshots: ScreenshotInfo[] = [];
   private consoleLogs: string[] = [];
+  private useFirebase: boolean = false;
 
-  constructor(outputDir: string = './output') {
+  constructor(outputDir: string = './output', useFirebase: boolean = false) {
     this.outputDir = outputDir;
+    this.useFirebase = useFirebase;
+    
+    // Initialize Firebase if enabled
+    if (this.useFirebase) {
+      getFirebaseService().initialize().catch(err => {
+        console.warn('Firebase initialization failed, using file system:', err);
+        this.useFirebase = false;
+      });
+    }
   }
 
   /**
@@ -88,13 +99,26 @@ export class EvidenceCapture {
         }
       }
       
+      // Save to file system (always, as fallback)
       await writeFile(filepath, screenshotBuffer);
       console.log(`✓ Screenshot saved: ${filename}`);
+
+      // Upload to Firebase Storage if enabled
+      let storageUrl: string | null = null;
+      if (this.useFirebase) {
+        const firebaseService = getFirebaseService();
+        await firebaseService.initialize();
+        if (firebaseService.isAvailable()) {
+          storageUrl = await firebaseService.uploadScreenshot(screenshotBuffer, filename);
+        }
+      }
 
       const screenshotInfo: ScreenshotInfo = {
         filename,
         timestamp: new Date().toISOString(),
         label,
+        storageUrl: storageUrl || undefined,
+        url: storageUrl || undefined, // Use Firebase URL if available
       };
 
       this.screenshots.push(screenshotInfo);
